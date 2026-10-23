@@ -128,6 +128,7 @@ func resourceService() *schema.Resource {
 							"failure_threshold": {
 								Type:     schema.TypeInt,
 								Optional: true,
+								Computed: true,
 								ForceNew: true,
 								Deprecated: "failure_threshold is deprecated. The argument is no longer supported by AWS and the " +
 									"value is always set to 1. The attribute will be removed in a future major version.",
@@ -183,8 +184,10 @@ func resourceServiceCreate(ctx context.Context, d *schema.ResourceData, meta any
 		input.HealthCheckConfig = expandHealthCheckConfig(v.([]any)[0].(map[string]any))
 	}
 
-	if v, ok := d.GetOk("health_check_custom_config"); ok && len(v.([]any)) > 0 && v.([]any)[0] != nil {
-		input.HealthCheckCustomConfig = expandHealthCheckCustomConfig(v.([]any)[0].(map[string]any))
+	// An empty block arrives as a nil element. AWS accepts an empty HealthCheckCustomConfig and enables custom health checks.
+	if v := d.Get("health_check_custom_config").([]any); len(v) > 0 {
+		tfMap, _ := v[0].(map[string]any)
+		input.HealthCheckCustomConfig = expandHealthCheckCustomConfig(tfMap)
 	}
 
 	if v, ok := d.GetOk("namespace_id"); ok {
@@ -239,8 +242,8 @@ func resourceServiceRead(ctx context.Context, d *schema.ResourceData, meta any) 
 	} else {
 		d.Set("health_check_config", nil)
 	}
-	if tfMap := flattenHealthCheckCustomConfig(service.HealthCheckCustomConfig); len(tfMap) > 0 {
-		if err := d.Set("health_check_custom_config", []any{tfMap}); err != nil {
+	if service.HealthCheckCustomConfig != nil {
+		if err := d.Set("health_check_custom_config", []any{flattenHealthCheckCustomConfig(service.HealthCheckCustomConfig)}); err != nil {
 			return sdkdiag.AppendErrorf(diags, "setting health_check_custom_config: %s", err)
 		}
 	} else {
@@ -587,10 +590,6 @@ func flattenHealthCheckConfig(apiObject *awstypes.HealthCheckConfig) map[string]
 }
 
 func expandHealthCheckCustomConfig(tfMap map[string]any) *awstypes.HealthCheckCustomConfig {
-	if len(tfMap) < 1 {
-		return nil
-	}
-
 	apiObject := &awstypes.HealthCheckCustomConfig{}
 
 	if v, ok := tfMap["failure_threshold"].(int); ok && v != 0 {

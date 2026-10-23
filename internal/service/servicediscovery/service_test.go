@@ -5,10 +5,12 @@ package servicediscovery_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 
 	"github.com/YakDriver/regexache"
+	awstypes "github.com/aws/aws-sdk-go-v2/service/servicediscovery/types"
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 	"github.com/hashicorp/terraform-plugin-testing/plancheck"
 	"github.com/hashicorp/terraform-plugin-testing/terraform"
@@ -20,6 +22,7 @@ import (
 
 func TestAccServiceDiscoveryService_private(t *testing.T) {
 	ctx := acctest.Context(t)
+	var service awstypes.Service
 	resourceName := "aws_service_discovery_service.test"
 	rName := acctest.RandomWithPrefix(t, acctest.ResourcePrefix)
 
@@ -36,7 +39,7 @@ func TestAccServiceDiscoveryService_private(t *testing.T) {
 			{
 				Config: testAccServiceConfig_private(rName, 1),
 				Check: resource.ComposeAggregateTestCheckFunc(
-					testAccCheckServiceExists(ctx, t, resourceName),
+					testAccCheckServiceExists(ctx, t, resourceName, &service),
 					acctest.MatchResourceAttrRegionalARN(ctx, resourceName, names.AttrARN, "servicediscovery", regexache.MustCompile(`service/.+`)),
 					resource.TestCheckResourceAttr(resourceName, names.AttrDescription, ""),
 					resource.TestCheckResourceAttr(resourceName, "dns_config.#", "1"),
@@ -61,7 +64,7 @@ func TestAccServiceDiscoveryService_private(t *testing.T) {
 			{
 				Config: testAccServiceConfig_privateUpdate(rName, 1),
 				Check: resource.ComposeAggregateTestCheckFunc(
-					testAccCheckServiceExists(ctx, t, resourceName),
+					testAccCheckServiceExists(ctx, t, resourceName, &service),
 					acctest.MatchResourceAttrRegionalARN(ctx, resourceName, names.AttrARN, "servicediscovery", regexache.MustCompile(`service/.+`)),
 					resource.TestCheckResourceAttr(resourceName, names.AttrDescription, "test"),
 					resource.TestCheckResourceAttr(resourceName, "dns_config.#", "1"),
@@ -84,6 +87,7 @@ func TestAccServiceDiscoveryService_private(t *testing.T) {
 
 func TestAccServiceDiscoveryService_public(t *testing.T) {
 	ctx := acctest.Context(t)
+	var service awstypes.Service
 	rName := acctest.RandomWithPrefix(t, acctest.ResourcePrefix)
 	resourceName := "aws_service_discovery_service.test"
 
@@ -100,7 +104,7 @@ func TestAccServiceDiscoveryService_public(t *testing.T) {
 			{
 				Config: testAccServiceConfig_public(rName, 5, "/path"),
 				Check: resource.ComposeAggregateTestCheckFunc(
-					testAccCheckServiceExists(ctx, t, resourceName),
+					testAccCheckServiceExists(ctx, t, resourceName, &service),
 					acctest.MatchResourceAttrRegionalARN(ctx, resourceName, names.AttrARN, "servicediscovery", regexache.MustCompile(`service/.+`)),
 					resource.TestCheckResourceAttr(resourceName, names.AttrDescription, "test"),
 					resource.TestCheckResourceAttr(resourceName, "dns_config.#", "1"),
@@ -122,7 +126,7 @@ func TestAccServiceDiscoveryService_public(t *testing.T) {
 			{
 				Config: testAccServiceConfig_public(rName, 3, "/updated-path"),
 				Check: resource.ComposeAggregateTestCheckFunc(
-					testAccCheckServiceExists(ctx, t, resourceName),
+					testAccCheckServiceExists(ctx, t, resourceName, &service),
 					acctest.MatchResourceAttrRegionalARN(ctx, resourceName, names.AttrARN, "servicediscovery", regexache.MustCompile(`service/.+`)),
 					resource.TestCheckResourceAttr(resourceName, names.AttrDescription, "test"),
 					resource.TestCheckResourceAttr(resourceName, "dns_config.#", "1"),
@@ -137,7 +141,7 @@ func TestAccServiceDiscoveryService_public(t *testing.T) {
 			{
 				Config: testAccServiceConfig_publicUpdateNoHealthCheck(rName),
 				Check: resource.ComposeAggregateTestCheckFunc(
-					testAccCheckServiceExists(ctx, t, resourceName),
+					testAccCheckServiceExists(ctx, t, resourceName, &service),
 					acctest.MatchResourceAttrRegionalARN(ctx, resourceName, names.AttrARN, "servicediscovery", regexache.MustCompile(`service/.+`)),
 					resource.TestCheckResourceAttr(resourceName, names.AttrDescription, ""),
 					resource.TestCheckResourceAttr(resourceName, "dns_config.#", "1"),
@@ -152,6 +156,7 @@ func TestAccServiceDiscoveryService_public(t *testing.T) {
 
 func TestAccServiceDiscoveryService_private_http(t *testing.T) {
 	ctx := acctest.Context(t)
+	var service awstypes.Service
 	rName := acctest.RandomWithPrefix(t, acctest.ResourcePrefix)
 	resourceName := "aws_service_discovery_service.test"
 
@@ -167,7 +172,7 @@ func TestAccServiceDiscoveryService_private_http(t *testing.T) {
 			{
 				Config: testAccServiceConfig_private_http(rName),
 				Check: resource.ComposeTestCheckFunc(
-					testAccCheckServiceExists(ctx, t, resourceName),
+					testAccCheckServiceExists(ctx, t, resourceName, &service),
 					acctest.MatchResourceAttrRegionalARN(ctx, resourceName, names.AttrARN, "servicediscovery", regexache.MustCompile(`service/.+`)),
 					resource.TestCheckResourceAttrSet(resourceName, "namespace_id"),
 					resource.TestCheckResourceAttr(resourceName, names.AttrType, "HTTP"),
@@ -184,8 +189,138 @@ func TestAccServiceDiscoveryService_private_http(t *testing.T) {
 	})
 }
 
+func TestAccServiceDiscoveryService_HealthCheckCustomConfig_empty(t *testing.T) {
+	ctx := acctest.Context(t)
+	var service awstypes.Service
+	resourceName := "aws_service_discovery_service.test"
+	rName := acctest.RandomWithPrefix(t, acctest.ResourcePrefix)
+
+	acctest.ParallelTest(ctx, t, resource.TestCase{
+		PreCheck: func() {
+			acctest.PreCheck(ctx, t)
+			acctest.PreCheckPartitionHasService(t, names.ServiceDiscoveryEndpointID)
+			testAccPreCheck(ctx, t)
+		},
+		ErrorCheck:               acctest.ErrorCheck(t, names.ServiceDiscoveryServiceID),
+		ProtoV5ProviderFactories: acctest.ProtoV5ProviderFactories,
+		CheckDestroy:             testAccCheckServiceDestroy(ctx, t),
+		Steps: []resource.TestStep{
+			{
+				Config: testAccServiceConfig_healthCheckCustomConfigEmpty(rName),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					testAccCheckServiceExists(ctx, t, resourceName, &service),
+					testAccCheckServiceHasHealthCheckCustomConfig(&service),
+					resource.TestCheckResourceAttr(resourceName, "health_check_config.#", "0"),
+					resource.TestCheckResourceAttr(resourceName, "health_check_custom_config.#", "1"),
+					resource.TestCheckResourceAttr(resourceName, "health_check_custom_config.0.failure_threshold", "1"),
+				),
+			},
+			{
+				ResourceName:            resourceName,
+				ImportState:             true,
+				ImportStateVerify:       true,
+				ImportStateVerifyIgnore: []string{names.AttrForceDestroy},
+			},
+		},
+	})
+}
+
+func TestAccServiceDiscoveryService_HealthCheckCustomConfig_removeFailureThreshold(t *testing.T) {
+	ctx := acctest.Context(t)
+	var service awstypes.Service
+	resourceName := "aws_service_discovery_service.test"
+	rName := acctest.RandomWithPrefix(t, acctest.ResourcePrefix)
+
+	acctest.ParallelTest(ctx, t, resource.TestCase{
+		PreCheck: func() {
+			acctest.PreCheck(ctx, t)
+			acctest.PreCheckPartitionHasService(t, names.ServiceDiscoveryEndpointID)
+			testAccPreCheck(ctx, t)
+		},
+		ErrorCheck:               acctest.ErrorCheck(t, names.ServiceDiscoveryServiceID),
+		ProtoV5ProviderFactories: acctest.ProtoV5ProviderFactories,
+		CheckDestroy:             testAccCheckServiceDestroy(ctx, t),
+		Steps: []resource.TestStep{
+			{
+				Config: testAccServiceConfig_private(rName, 1),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					testAccCheckServiceExists(ctx, t, resourceName, &service),
+					resource.TestCheckResourceAttr(resourceName, "health_check_custom_config.#", "1"),
+					resource.TestCheckResourceAttr(resourceName, "health_check_custom_config.0.failure_threshold", "1"),
+				),
+			},
+			{
+				Config: testAccServiceConfig_healthCheckCustomConfigEmpty(rName),
+				ConfigPlanChecks: resource.ConfigPlanChecks{
+					PreApply: []plancheck.PlanCheck{
+						plancheck.ExpectResourceAction(resourceName, plancheck.ResourceActionNoop),
+					},
+				},
+				Check: resource.ComposeAggregateTestCheckFunc(
+					testAccCheckServiceExists(ctx, t, resourceName, &service),
+					testAccCheckServiceHasHealthCheckCustomConfig(&service),
+					resource.TestCheckResourceAttr(resourceName, "health_check_custom_config.#", "1"),
+					resource.TestCheckResourceAttr(resourceName, "health_check_custom_config.0.failure_threshold", "1"),
+				),
+			},
+		},
+	})
+}
+
+func TestAccServiceDiscoveryService_HealthCheckCustomConfig_upgradeFromV6_70_0(t *testing.T) {
+	ctx := acctest.Context(t)
+	var service awstypes.Service
+	resourceName := "aws_service_discovery_service.test"
+	rName := acctest.RandomWithPrefix(t, acctest.ResourcePrefix)
+
+	acctest.ParallelTest(ctx, t, resource.TestCase{
+		PreCheck: func() {
+			acctest.PreCheck(ctx, t)
+			acctest.PreCheckPartitionHasService(t, names.ServiceDiscoveryEndpointID)
+			testAccPreCheck(ctx, t)
+		},
+		ErrorCheck:   acctest.ErrorCheck(t, names.ServiceDiscoveryServiceID),
+		CheckDestroy: testAccCheckServiceDestroy(ctx, t),
+		Steps: []resource.TestStep{
+			{
+				ExternalProviders: map[string]resource.ExternalProvider{
+					"aws": {
+						Source:            "hashicorp/aws",
+						VersionConstraint: "6.70.0",
+					},
+				},
+				Config: testAccServiceConfig_private(rName, 1),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					testAccCheckServiceExists(ctx, t, resourceName, &service),
+					resource.TestCheckResourceAttr(resourceName, "health_check_custom_config.#", "1"),
+					resource.TestCheckResourceAttr(resourceName, "health_check_custom_config.0.failure_threshold", "1"),
+				),
+			},
+			{
+				ProtoV5ProviderFactories: acctest.ProtoV5ProviderFactories,
+				Config:                   testAccServiceConfig_healthCheckCustomConfigEmpty(rName),
+				ConfigPlanChecks: resource.ConfigPlanChecks{
+					PreApply: []plancheck.PlanCheck{
+						plancheck.ExpectResourceAction(resourceName, plancheck.ResourceActionNoop),
+					},
+					PostApplyPostRefresh: []plancheck.PlanCheck{
+						plancheck.ExpectResourceAction(resourceName, plancheck.ResourceActionNoop),
+					},
+				},
+				Check: resource.ComposeAggregateTestCheckFunc(
+					testAccCheckServiceExists(ctx, t, resourceName, &service),
+					testAccCheckServiceHasHealthCheckCustomConfig(&service),
+					resource.TestCheckResourceAttr(resourceName, "health_check_custom_config.#", "1"),
+					resource.TestCheckResourceAttr(resourceName, "health_check_custom_config.0.failure_threshold", "1"),
+				),
+			},
+		},
+	})
+}
+
 func TestAccServiceDiscoveryService_http(t *testing.T) {
 	ctx := acctest.Context(t)
+	var service awstypes.Service
 	rName := acctest.RandomWithPrefix(t, acctest.ResourcePrefix)
 	resourceName := "aws_service_discovery_service.test"
 
@@ -201,7 +336,7 @@ func TestAccServiceDiscoveryService_http(t *testing.T) {
 			{
 				Config: testAccServiceConfig_http(rName),
 				Check: resource.ComposeTestCheckFunc(
-					testAccCheckServiceExists(ctx, t, resourceName),
+					testAccCheckServiceExists(ctx, t, resourceName, &service),
 					acctest.MatchResourceAttrRegionalARN(ctx, resourceName, names.AttrARN, "servicediscovery", regexache.MustCompile(`service/.+`)),
 					resource.TestCheckResourceAttrSet(resourceName, "namespace_id"),
 					resource.TestCheckResourceAttr(resourceName, acctest.CtTagsPercent, "0"),
@@ -219,6 +354,7 @@ func TestAccServiceDiscoveryService_http(t *testing.T) {
 
 func TestAccServiceDiscoveryService_disappears(t *testing.T) {
 	ctx := acctest.Context(t)
+	var service awstypes.Service
 	rName := acctest.RandomWithPrefix(t, acctest.ResourcePrefix)
 	resourceName := "aws_service_discovery_service.test"
 
@@ -234,7 +370,7 @@ func TestAccServiceDiscoveryService_disappears(t *testing.T) {
 			{
 				Config: testAccServiceConfig_http(rName),
 				Check: resource.ComposeTestCheckFunc(
-					testAccCheckServiceExists(ctx, t, resourceName),
+					testAccCheckServiceExists(ctx, t, resourceName, &service),
 					acctest.CheckSDKResourceDisappears(ctx, t, tfservicediscovery.ResourceService(), resourceName),
 				),
 				ExpectNonEmptyPlan: true,
@@ -253,6 +389,7 @@ func TestAccServiceDiscoveryService_disappears(t *testing.T) {
 
 func TestAccServiceDiscoveryService_tags(t *testing.T) {
 	ctx := acctest.Context(t)
+	var service awstypes.Service
 	rName := acctest.RandomWithPrefix(t, acctest.ResourcePrefix)
 	resourceName := "aws_service_discovery_service.test"
 
@@ -268,7 +405,7 @@ func TestAccServiceDiscoveryService_tags(t *testing.T) {
 			{
 				Config: testAccServiceConfig_tags1(rName, acctest.CtKey1, acctest.CtValue1),
 				Check: resource.ComposeTestCheckFunc(
-					testAccCheckServiceExists(ctx, t, resourceName),
+					testAccCheckServiceExists(ctx, t, resourceName, &service),
 					resource.TestCheckResourceAttr(resourceName, acctest.CtTagsPercent, "1"),
 					resource.TestCheckResourceAttr(resourceName, acctest.CtTagsKey1, acctest.CtValue1),
 				),
@@ -282,7 +419,7 @@ func TestAccServiceDiscoveryService_tags(t *testing.T) {
 			{
 				Config: testAccServiceConfig_tags2(rName, acctest.CtKey1, acctest.CtValue1Updated, acctest.CtKey2, acctest.CtValue2),
 				Check: resource.ComposeTestCheckFunc(
-					testAccCheckServiceExists(ctx, t, resourceName),
+					testAccCheckServiceExists(ctx, t, resourceName, &service),
 					resource.TestCheckResourceAttr(resourceName, acctest.CtTagsPercent, "2"),
 					resource.TestCheckResourceAttr(resourceName, acctest.CtTagsKey1, acctest.CtValue1Updated),
 					resource.TestCheckResourceAttr(resourceName, acctest.CtTagsKey2, acctest.CtValue2),
@@ -291,7 +428,7 @@ func TestAccServiceDiscoveryService_tags(t *testing.T) {
 			{
 				Config: testAccServiceConfig_tags1(rName, acctest.CtKey2, acctest.CtValue2),
 				Check: resource.ComposeTestCheckFunc(
-					testAccCheckServiceExists(ctx, t, resourceName),
+					testAccCheckServiceExists(ctx, t, resourceName, &service),
 					resource.TestCheckResourceAttr(resourceName, acctest.CtTagsPercent, "1"),
 					resource.TestCheckResourceAttr(resourceName, acctest.CtTagsKey2, acctest.CtValue2),
 				),
@@ -326,7 +463,7 @@ func testAccCheckServiceDestroy(ctx context.Context, t *testing.T) resource.Test
 	}
 }
 
-func testAccCheckServiceExists(ctx context.Context, t *testing.T, n string) resource.TestCheckFunc {
+func testAccCheckServiceExists(ctx context.Context, t *testing.T, n string, v *awstypes.Service) resource.TestCheckFunc {
 	return func(s *terraform.State) error {
 		rs, ok := s.RootModule().Resources[n]
 		if !ok {
@@ -335,9 +472,25 @@ func testAccCheckServiceExists(ctx context.Context, t *testing.T, n string) reso
 
 		conn := acctest.ProviderMeta(ctx, t).ServiceDiscoveryClient(ctx)
 
-		_, err := tfservicediscovery.FindServiceByID(ctx, conn, rs.Primary.ID)
+		output, err := tfservicediscovery.FindServiceByID(ctx, conn, rs.Primary.ID)
 
-		return err
+		if err != nil {
+			return err
+		}
+
+		*v = *output
+
+		return nil
+	}
+}
+
+func testAccCheckServiceHasHealthCheckCustomConfig(v *awstypes.Service) resource.TestCheckFunc {
+	return func(s *terraform.State) error {
+		if v.HealthCheckCustomConfig == nil {
+			return errors.New("HealthCheckCustomConfig is nil")
+		}
+
+		return nil
 	}
 }
 
@@ -416,6 +569,38 @@ resource "aws_service_discovery_service" "test" {
   }
 }
 `, rName, th)
+}
+
+func testAccServiceConfig_healthCheckCustomConfigEmpty(rName string) string {
+	return fmt.Sprintf(`
+resource "aws_vpc" "test" {
+  cidr_block = "10.0.0.0/16"
+
+  tags = {
+    Name = %[1]q
+  }
+}
+
+resource "aws_service_discovery_private_dns_namespace" "test" {
+  name = "%[1]s.test"
+  vpc  = aws_vpc.test.id
+}
+
+resource "aws_service_discovery_service" "test" {
+  name = %[1]q
+
+  dns_config {
+    namespace_id = aws_service_discovery_private_dns_namespace.test.id
+
+    dns_records {
+      ttl  = 5
+      type = "A"
+    }
+  }
+
+  health_check_custom_config {}
+}
+`, rName)
 }
 
 func testAccServiceConfig_private_http(rName string) string {

@@ -76,6 +76,37 @@ func TestAccServiceDiscoveryServiceDataSource_private(t *testing.T) {
 	})
 }
 
+func TestAccServiceDiscoveryServiceDataSource_HealthCheckCustomConfig_empty(t *testing.T) {
+	ctx := acctest.Context(t)
+	rName := acctest.RandomWithPrefix(t, acctest.ResourcePrefix)
+	dataSourceName := "data.aws_service_discovery_service.test"
+	resourceName := "aws_service_discovery_service.test"
+
+	acctest.ParallelTest(ctx, t, resource.TestCase{
+		PreCheck: func() {
+			acctest.PreCheck(ctx, t)
+			acctest.PreCheckPartitionHasService(t, names.ServiceDiscoveryEndpointID)
+			testAccPreCheck(ctx, t)
+		},
+		ErrorCheck:               acctest.ErrorCheck(t, names.ServiceDiscoveryServiceID),
+		ProtoV5ProviderFactories: acctest.ProtoV5ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: testAccServiceDataSourceConfig_healthCheckCustomConfigEmpty(rName),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr(dataSourceName, "health_check_custom_config.#", "1"),
+					resource.TestCheckResourceAttrPair(dataSourceName, names.AttrARN, resourceName, names.AttrARN),
+					resource.TestCheckResourceAttrPair(dataSourceName, names.AttrName, resourceName, names.AttrName),
+					resource.TestCheckResourceAttrPair(dataSourceName, "namespace_id", resourceName, "namespace_id"),
+					resource.TestCheckResourceAttrPair(dataSourceName, "health_check_config.#", resourceName, "health_check_config.#"),
+					resource.TestCheckResourceAttrPair(dataSourceName, "health_check_custom_config.#", resourceName, "health_check_custom_config.#"),
+					resource.TestCheckResourceAttrPair(dataSourceName, "health_check_custom_config.0.failure_threshold", resourceName, "health_check_custom_config.0.failure_threshold"),
+				),
+			},
+		},
+	})
+}
+
 func TestAccServiceDiscoveryServiceDataSource_public(t *testing.T) {
 	ctx := acctest.Context(t)
 	rName := acctest.RandomWithPrefix(t, acctest.ResourcePrefix)
@@ -160,6 +191,43 @@ resource "aws_service_discovery_service" "test" {
   health_check_custom_config {
     failure_threshold = 1
   }
+}
+
+data "aws_service_discovery_service" "test" {
+  name         = aws_service_discovery_service.test.name
+  namespace_id = aws_service_discovery_private_dns_namespace.test.id
+}
+`, rName)
+}
+
+func testAccServiceDataSourceConfig_healthCheckCustomConfigEmpty(rName string) string {
+	return fmt.Sprintf(`
+resource "aws_vpc" "test" {
+  cidr_block = "10.0.0.0/16"
+
+  tags = {
+    Name = %[1]q
+  }
+}
+
+resource "aws_service_discovery_private_dns_namespace" "test" {
+  name = "%[1]s.test"
+  vpc  = aws_vpc.test.id
+}
+
+resource "aws_service_discovery_service" "test" {
+  name = %[1]q
+
+  dns_config {
+    namespace_id = aws_service_discovery_private_dns_namespace.test.id
+
+    dns_records {
+      ttl  = 5
+      type = "A"
+    }
+  }
+
+  health_check_custom_config {}
 }
 
 data "aws_service_discovery_service" "test" {

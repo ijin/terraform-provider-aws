@@ -147,8 +147,8 @@ func dataSourceServiceRead(ctx context.Context, d *schema.ResourceData, meta any
 	} else {
 		d.Set("health_check_config", nil)
 	}
-	if tfMap := flattenHealthCheckCustomConfig(service.HealthCheckCustomConfig); len(tfMap) > 0 {
-		if err := d.Set("health_check_custom_config", []any{tfMap}); err != nil {
+	if service.HealthCheckCustomConfig != nil {
+		if err := d.Set("health_check_custom_config", []any{flattenHealthCheckCustomConfig(service.HealthCheckCustomConfig)}); err != nil {
 			return sdkdiag.AppendErrorf(diags, "setting health_check_custom_config: %s", err)
 		}
 	} else {
